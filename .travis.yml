@@ -1,6 +1,16 @@
 language: python
 dist: bionic
 
+# We use two different caching strategies.  The default is to cache pip
+# packages (as most of our jobs use pip packages), which is configured here.
+# For the integration tests, we instead want to cache the lxd images.  The
+# directory in which the images are stored (/var/snap/lxd/common/lxd/images/)
+# is not readable/writeable by the default user (which is a requirement for
+# caching), so we instead cache the `lxd_images/` directory and copy out of
+# that before we run tests and back in once tests are complete.
+# (We cache the lxd images because this saves a few seconds in the general
+# case, but provides substantial speed-ups when cloud-images.ubuntu.com, the
+# source of the images, is under heavy load.)
 cache: pip
 
 install:
@@ -20,6 +30,12 @@ matrix:
               TOXENV=py3
               PYTEST_ADDOPTS=-v  # List all tests run by pytest
         - if: NOT branch =~ /^ubuntu\//
+          cache:
+              - directories:
+                  - lxd_images
+          before_cache:
+              # Copy lxd image files into the directory Travis will cache
+              - sudo find /var/snap/lxd/common/lxd/images/ -type f -exec cp {} lxd_images/ \;
           install:
             - git fetch --unshallow
             - sudo apt-get build-dep -y cloud-init
@@ -35,6 +51,8 @@ matrix:
             - sudo snap install lxd
             - sudo lxd init --auto
             - sudo mkdir --mode=1777 -p /var/snap/lxd/common/consoles
+            # Copy any cached lxd images into lxd's image dir
+            - sudo find lxd_images/ -type f -exec cp {} /var/snap/lxd/common/lxd/images/ \;
             - sudo usermod -a -G lxd $USER
             - sudo sbuild-adduser $USER
             - cp /usr/share/doc/sbuild/examples/example.sbuildrc /home/$USER/.sbuildrc
